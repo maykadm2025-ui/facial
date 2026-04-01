@@ -8,7 +8,6 @@
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
     <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f6f9; margin: 0; padding: 0; color: #333; }
@@ -147,17 +146,6 @@
     // 1. VARIÁVEIS GLOBAIS E CONFIGURAÇÕES
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     const URL_MODELOS = 'https://raw.githubusercontent.com/vladmandic/face-api/master/model/';
-    const SUPABASE_URL = 'https://bpdcdqaangtkoiqppdwf.supabase.co';
-    const SUPABASE_KEY = 'sb_publishable_8wPo5UwpL_e1rSwmodNWiA_c9P-klIx';
-    const SUPABASE_BUCKET = 'face';
-    const SUPABASE_CADASTROS_PATH = 'cadastros/alunos.json';
-    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
-        auth: {
-            persistSession: false,
-            autoRefreshToken: false,
-            detectSessionInUrl: false
-        }
-    });
 
     let bancoAlunos = []; 
     let registrosEntrada = []; 
@@ -194,34 +182,15 @@
         };
     }
 
-    function ehArquivoAusente(error) {
-        if (!error) return false;
+    async function carregarCadastrosDoServidor() {
+        const resposta = await fetch('/api/cadastros');
 
-        const status = String(error.statusCode || error.status || "");
-        const mensagem = `${error.message || ""} ${error.error || ""}`;
-
-        return status === "404" || /not found/i.test(mensagem);
-    }
-
-    async function carregarCadastrosDoSupabase() {
-        const { data, error } = await supabaseClient
-            .storage
-            .from(SUPABASE_BUCKET)
-            .download(SUPABASE_CADASTROS_PATH);
-
-        if (error) {
-            if (ehArquivoAusente(error)) {
-                bancoAlunos = [];
-                atualizarMatcher();
-                return;
-            }
-
-            throw error;
+        if (!resposta.ok) {
+            const erro = await resposta.json().catch(() => null);
+            throw new Error(erro?.error || 'Não foi possível carregar os cadastros.');
         }
 
-        const conteudo = await data.text();
-        const alunosSalvos = conteudo ? JSON.parse(conteudo) : [];
-
+        const alunosSalvos = await resposta.json();
         bancoAlunos = Array.isArray(alunosSalvos)
             ? alunosSalvos.map(desserializarAluno)
             : [];
@@ -229,20 +198,18 @@
         atualizarMatcher();
     }
 
-    async function salvarCadastrosNoSupabase() {
-        const conteudo = JSON.stringify(bancoAlunos.map(serializarAluno));
-        const arquivo = new Blob([conteudo], { type: 'application/json' });
+    async function salvarCadastrosNoServidor() {
+        const resposta = await fetch('/api/cadastros', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(bancoAlunos.map(serializarAluno))
+        });
 
-        const { error } = await supabaseClient
-            .storage
-            .from(SUPABASE_BUCKET)
-            .upload(SUPABASE_CADASTROS_PATH, arquivo, {
-                contentType: 'application/json',
-                upsert: true
-            });
-
-        if (error) {
-            throw error;
+        if (!resposta.ok) {
+            const erro = await resposta.json().catch(() => null);
+            throw new Error(erro?.error || 'Não foi possível salvar os cadastros.');
         }
     }
 
@@ -256,7 +223,7 @@
             matcher = null;
 
             try {
-                await salvarCadastrosNoSupabase();
+                await salvarCadastrosNoServidor();
                 renderizarTabela();
                 alert("Dados apagados com sucesso.");
             } catch (error) {
@@ -265,7 +232,7 @@
                 atualizarMatcher();
                 renderizarTabela();
                 console.error(error);
-                alert("Não foi possível limpar os cadastros no Supabase.");
+                alert("Não foi possível limpar os cadastros no servidor.");
             }
         }
     }
@@ -283,8 +250,8 @@
     async function iniciarIA() {
         try {
             document.getElementById('filtroData').valueAsDate = new Date();
-            statusMsg.innerText = "Carregando cadastros do Supabase...";
-            await carregarCadastrosDoSupabase();
+            statusMsg.innerText = "Carregando cadastros do servidor...";
+            await carregarCadastrosDoServidor();
             renderizarTabela();
 
             if(isMobile) {
@@ -464,7 +431,7 @@
                 atualizarMatcher();
 
                 try {
-                    await salvarCadastrosNoSupabase();
+                    await salvarCadastrosNoServidor();
                     alert(`Aluno(a) ${nome} cadastrado com sucesso!`);
                     document.getElementById('nomeInput').value = "";
                     callbackFinal();
@@ -473,7 +440,7 @@
                     bancoAlunos.pop();
                     atualizarMatcher();
                     console.error(error);
-                    alert("Não foi possível salvar o cadastro no Supabase.");
+                    alert("Não foi possível salvar o cadastro no servidor.");
                 }
             } else {
                 alert("Rosto não detectado! O rosto precisa estar bem iluminado e visível. Tente novamente.");
