@@ -108,6 +108,21 @@ def index():
     return send_from_directory(BASE_DIR, "index.html")
 
 
+@app.after_request
+def adicionar_cors(resposta):
+    if request.path.startswith("/api/"):
+        resposta.headers["Access-Control-Allow-Origin"] = "*"
+        resposta.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        resposta.headers["Access-Control-Allow-Methods"] = "GET, PUT, OPTIONS"
+
+    return resposta
+
+
+@app.route("/api/cadastros", methods=["OPTIONS"])
+def opcoes_cadastros():
+    return ("", 204)
+
+
 @app.get("/api/cadastros")
 def obter_cadastros():
     try:

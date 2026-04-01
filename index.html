@@ -182,14 +182,45 @@
         };
     }
 
-    async function carregarCadastrosDoServidor() {
-        const resposta = await fetch('/api/cadastros');
+    async function requisicaoApi(caminho, opcoes = {}) {
+        const bases = [];
 
-        if (!resposta.ok) {
-            const erro = await resposta.json().catch(() => null);
-            throw new Error(erro?.error || 'Não foi possível carregar os cadastros.');
+        if (window.location.protocol !== 'file:' && window.location.origin) {
+            bases.push(window.location.origin);
         }
 
+        if (!bases.includes('http://127.0.0.1:5000')) {
+            bases.push('http://127.0.0.1:5000');
+        }
+
+        let ultimoErro = null;
+
+        for (const base of bases) {
+            try {
+                const resposta = await fetch(`${base}${caminho}`, opcoes);
+
+                if (resposta.ok) {
+                    return resposta;
+                }
+
+                const erro = await resposta.json().catch(() => null);
+                const mensagem = erro?.error || `Não foi possível acessar ${caminho}.`;
+
+                if (resposta.status !== 404 || base === 'http://127.0.0.1:5000') {
+                    throw new Error(mensagem);
+                }
+
+                ultimoErro = new Error(mensagem);
+            } catch (erro) {
+                ultimoErro = erro;
+            }
+        }
+
+        throw ultimoErro || new Error(`Não foi possível acessar ${caminho}.`);
+    }
+
+    async function carregarCadastrosDoServidor() {
+        const resposta = await requisicaoApi('/api/cadastros');
         const alunosSalvos = await resposta.json();
         bancoAlunos = Array.isArray(alunosSalvos)
             ? alunosSalvos.map(desserializarAluno)
@@ -199,18 +230,13 @@
     }
 
     async function salvarCadastrosNoServidor() {
-        const resposta = await fetch('/api/cadastros', {
+        await requisicaoApi('/api/cadastros', {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify(bancoAlunos.map(serializarAluno))
         });
-
-        if (!resposta.ok) {
-            const erro = await resposta.json().catch(() => null);
-            throw new Error(erro?.error || 'Não foi possível salvar os cadastros.');
-        }
     }
 
     async function limparDados() {
@@ -251,7 +277,14 @@
         try {
             document.getElementById('filtroData').valueAsDate = new Date();
             statusMsg.innerText = "Carregando cadastros do servidor...";
-            await carregarCadastrosDoServidor();
+            try {
+                await carregarCadastrosDoServidor();
+            } catch (erroCadastros) {
+                bancoAlunos = [];
+                atualizarMatcher();
+                console.error(erroCadastros);
+                statusMsg.innerText = "Cadastros indisponíveis. Iniciando sem histórico.";
+            }
             renderizarTabela();
 
             if(isMobile) {
