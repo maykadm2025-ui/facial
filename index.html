@@ -74,7 +74,6 @@
     <div class="nav-buttons">
         <button id="btn-nav-relatorio" class="active" onclick="mudarAba('relatorio')">Relatórios</button>
         <button id="btn-nav-cadastro" onclick="mudarAba('cadastro')">Cadastro de Aluno</button>
-        <button id="btn-nav-camera" onclick="mudarAba('camera')">Câmera de Acesso</button>
     </div>
 
     <div class="container">
@@ -167,36 +166,8 @@
     const canvasOverlay = document.getElementById('overlay-reconhecimento');
     const botoesTrocarCamera = document.querySelectorAll('.btn-trocar-camera');
 
-    // 2. RECUPERAR DADOS SALVOS (LocalStorage)
-    function carregarDadosSalvos() {
-        const alunosSalvos = localStorage.getItem('escola_bancoAlunos');
-        const registrosSalvos = localStorage.getItem('escola_registros');
-        
-        if (alunosSalvos) {
-            const dadosParseados = JSON.parse(alunosSalvos);
-            bancoAlunos = dadosParseados.map(aluno => {
-                return {
-                    nome: aluno.nome,
-                    turno: aluno.turno,
-                    descriptor: new Float32Array(Object.values(aluno.descriptor))
-                };
-            });
-            atualizarMatcher();
-        }
-        
-        if (registrosSalvos) {
-            registrosEntrada = JSON.parse(registrosSalvos);
-        }
-    }
-
-    function salvarDados() {
-        localStorage.setItem('escola_bancoAlunos', JSON.stringify(bancoAlunos));
-        localStorage.setItem('escola_registros', JSON.stringify(registrosEntrada));
-    }
-
     function limparDados() {
         if(confirm("Tem certeza que deseja apagar TODOS os alunos e registros?")) {
-            localStorage.clear();
             bancoAlunos = [];
             registrosEntrada = [];
             matcher = null;
@@ -217,7 +188,6 @@
     // 3. INICIALIZAÇÃO DA IA
     async function iniciarIA() {
         try {
-            carregarDadosSalvos();
             document.getElementById('filtroData').valueAsDate = new Date();
             renderizarTabela();
 
@@ -394,7 +364,6 @@
             if (deteccao) {
                 bancoAlunos.push({ nome, turno, descriptor: deteccao.descriptor });
                 atualizarMatcher();
-                salvarDados();
                 
                 alert(`Aluno(a) ${nome} cadastrado com sucesso!`);
                 document.getElementById('nomeInput').value = "";
@@ -481,7 +450,6 @@
         const hoje = new Date().toISOString().split('T')[0];
         if (!registrosEntrada.find(r => r.nome === nome && r.data === hoje)) {
             registrosEntrada.push({ nome, data: hoje, hora: new Date().toLocaleTimeString('pt-BR') });
-            salvarDados(); 
             if(document.getElementById('aba-relatorio').classList.contains('active')) {
                 renderizarTabela();
             }
