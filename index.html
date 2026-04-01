@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Controle de Acesso Escolar</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
+    
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f6f9; margin: 0; padding: 0; color: #333; }
+        .header { background: #0d6efd; color: white; padding: 15px; text-align: center; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+        .header h1 { margin: 0; font-size: 1.5rem; }
+        #status-msg { margin-top: 5px; font-weight: bold; font-size: 0.9rem; color: #ffeb3b; }
+        
+        .nav-buttons { display: flex; justify-content: center; gap: 10px; padding: 15px; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .nav-buttons button { padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; background: #e9ecef; color: #333; transition: 0.3s; }
+        .nav-buttons button.active { background: #0d6efd; color: white; }
+
+        .container { padding: 20px; max-width: 800px; margin: 0 auto; }
+        .aba { display: none; background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .aba.active { display: block; }
+
+        /* Câmera e Canvas - CORRIGIDOS */
+        .video-wrapper { position: relative; width: 100%; max-width: 640px; margin: 0 auto; background: #000; border-radius: 8px; overflow: hidden; }
+        /* height: auto permite que o vídeo assuma a proporção nativa, evitando cortes no mobile */
+        video { width: 100%; height: auto; display: block; } 
+        canvas.overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        canvas#foto-capturada { width: 100%; max-width: 640px; border-radius: 8px; display: none; margin: 10px auto; border: 2px solid #0d6efd; height: auto; }
+
+        /* Controles de Câmera */
+        .camera-controls { text-align: center; margin-bottom: 10px; }
+        .btn-trocar-camera {
+            background: #6c757d;
+            color: white;
+            border: 1px solid rgba(255,255,255,0.3);
+            padding: 8px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            display: none; /* Só aparece se for Mobile */
+        }
+
+        /* Formulários */
+        .form-group { display: flex; flex-direction: column; gap: 10px; margin-top: 15px; max-width: 400px; margin-left: auto; margin-right: auto; }
+        input, select, button.btn-acao { padding: 12px; border-radius: 5px; border: 1px solid #ccc; font-size: 1rem; }
+        button.btn-acao { background: #198754; color: white; cursor: pointer; border: none; font-weight: bold; }
+        button.btn-acao:disabled { background: #6c757d; cursor: not-allowed; }
+        button.btn-secundario { background: #ffc107; color: #000; padding: 12px; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; }
+
+        #mobile-controls, #desktop-controls { display: none; flex-direction: column; gap: 10px; }
+
+        /* Tabelas */
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { padding: 12px; border-bottom: 1px solid #ddd; text-align: left; }
+        .status-presente { color: green; font-weight: bold; }
+        .status-falta { color: red; font-weight: bold; }
+
+        @media (max-width: 600px) {
+            th, td { padding: 8px; font-size: 0.9rem; }
+            .nav-buttons { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>Controle de Acesso Escolar</h1>
+        <div id="status-msg">Carregando IA... Por favor, aguarde.</div>
+    </div>
+
+    <div class="nav-buttons">
+        <button id="btn-nav-relatorio" class="active" onclick="mudarAba('relatorio')">Relatórios</button>
+        <button id="btn-nav-cadastro" onclick="mudarAba('cadastro')">Cadastro de Aluno</button>
+        <button id="btn-nav-camera" onclick="mudarAba('camera')">Câmera de Acesso</button>
+    </div>
+
+    <div class="container">
+        <div id="aba-relatorio" class="aba active">
+            <h3>Relatório de Frequência</h3>
+            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                <input type="date" id="filtroData" onchange="renderizarTabela()" style="flex: 1;">
+                <button class="btn-secundario" onclick="limparDados()" style="font-size: 0.8rem;">Apagar Tudo</button>
+            </div>
+            <div style="overflow-x: auto;">
+                <table>
+                    <thead>
+                        <tr><th>Nome</th><th>Turno</th><th>Entrada</th><th>Status</th></tr>
+                    </thead>
+                    <tbody id="tabelaCorpo"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="aba-cadastro" class="aba">
+            <h3 style="text-align: center;">Novo Cadastro</h3>
+            <p style="text-align: center; font-size: 0.85rem; color: #666;">Fique em local iluminado e olhe para a câmera.</p>
+            
+            <div class="camera-controls">
+                <button class="btn-trocar-camera" onclick="alternarCamera()">🔄 Trocar Câmera</button>
+            </div>
+
+            <div class="video-wrapper" id="wrapper-video-cadastro">
+                <video id="video-cadastro" autoplay muted playsinline></video>
+            </div>
+            <canvas id="foto-capturada"></canvas>
+            
+            <div class="form-group">
+                <input type="text" id="nomeInput" placeholder="Nome completo do Aluno">
+                <select id="turnoInput">
+                    <option value="Manha">Manhã</option>
+                    <option value="Noite">Noite</option>
+                </select>
+
+                <div id="mobile-controls">
+                    <button type="button" class="btn-secundario" id="btn-tirar-foto" onclick="tirarFotoMobile()">1. Tirar Foto</button>
+                    <button type="button" class="btn-secundario" id="btn-refazer-foto" style="display: none;" onclick="refazerFotoMobile(true)">Refazer Foto</button>
+                    <button type="button" class="btn-acao" id="btn-salvar-cadastro-mobile" onclick="cadastrarMobile()" disabled>2. Processar e Salvar</button>
+                </div>
+
+                <div id="desktop-controls">
+                    <button type="button" class="btn-acao" onclick="cadastrarDesktop()">Cadastrar Aluno (Tempo Real)</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="aba-camera" class="aba">
+            <h3 style="text-align: center;">Reconhecimento em Tempo Real</h3>
+            
+            <div class="camera-controls">
+                <button class="btn-trocar-camera" onclick="alternarCamera()">🔄 Trocar Câmera</button>
+            </div>
+
+            <div class="video-wrapper">
+                <video id="video-reconhecimento" autoplay muted playsinline></video>
+                <canvas id="overlay-reconhecimento" class="overlay"></canvas>
+            </div>
+            <p style="text-align: center; margin-top: 10px; font-size: 0.9rem; color: #666;">
+                Posicione o rosto em frente à câmera.
+            </p>
+        </div>
+    </div>
+
+<script>
+    // 1. VARIÁVEIS GLOBAIS E CONFIGURAÇÕES
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const URL_MODELOS = 'https://raw.githubusercontent.com/vladmandic/face-api/master/model/';
+
+    let bancoAlunos = []; 
+    let registrosEntrada = []; 
+    let matcher = null; 
+    let streamAtual = null;
+    let loopAtivo = false;
+    let modeloCarregado = false;
+    
+    // Controles separados para não dar conflito ao mudar de aba
+    let modoCameraCadastro = "user"; // Cadastro começa sempre na Frontal
+    let modoCameraReconhecimento = "environment"; // Reconhecimento começa sempre na Traseira
+
+    // Elementos da Interface
+    const statusMsg = document.getElementById('status-msg');
+    const videoCadastro = document.getElementById('video-cadastro');
+    const canvasFoto = document.getElementById('foto-capturada');
+    const videoReconhecimento = document.getElementById('video-reconhecimento');
+    const canvasOverlay = document.getElementById('overlay-reconhecimento');
+    const botoesTrocarCamera = document.querySelectorAll('.btn-trocar-camera');
+
+    // 2. RECUPERAR DADOS SALVOS (LocalStorage)
+    function carregarDadosSalvos() {
+        const alunosSalvos = localStorage.getItem('escola_bancoAlunos');
+        const registrosSalvos = localStorage.getItem('escola_registros');
+        
+        if (alunosSalvos) {
+            const dadosParseados = JSON.parse(alunosSalvos);
+            bancoAlunos = dadosParseados.map(aluno => {
+                return {
+                    nome: aluno.nome,
+                    turno: aluno.turno,
+                    descriptor: new Float32Array(Object.values(aluno.descriptor))
+                };
+            });
+            atualizarMatcher();
+        }
+        
+        if (registrosSalvos) {
+            registrosEntrada = JSON.parse(registrosSalvos);
+        }
+    }
+
+    function salvarDados() {
+        localStorage.setItem('escola_bancoAlunos', JSON.stringify(bancoAlunos));
+        localStorage.setItem('escola_registros', JSON.stringify(registrosEntrada));
+    }
+
+    function limparDados() {
+        if(confirm("Tem certeza que deseja apagar TODOS os alunos e registros?")) {
+            localStorage.clear();
+            bancoAlunos = [];
+            registrosEntrada = [];
+            matcher = null;
+            renderizarTabela();
+            alert("Dados apagados com sucesso.");
+        }
+    }
+
+    function atualizarMatcher() {
+        if (bancoAlunos.length > 0) {
+            const perfis = bancoAlunos.map(a => new faceapi.LabeledFaceDescriptors(a.nome, [a.descriptor]));
+            matcher = new faceapi.FaceMatcher(perfis, 0.55); 
+        } else {
+            matcher = null;
+        }
+    }
+
+    // 3. INICIALIZAÇÃO DA IA
+    async function iniciarIA() {
+        try {
+            carregarDadosSalvos();
+            document.getElementById('filtroData').valueAsDate = new Date();
+            renderizarTabela();
+
+            if(isMobile) {
+                botoesTrocarCamera.forEach(btn => btn.style.display = 'inline-block');
+                document.getElementById('mobile-controls').style.display = 'flex';
+                statusMsg.innerText = "Baixando IA Leve (Mobile)...";
+            } else {
+                document.getElementById('desktop-controls').style.display = 'flex';
+                statusMsg.innerText = "Baixando IA Completa (Desktop)...";
+            }
+
+            await faceapi.tf.setBackend('webgl');
+            await faceapi.tf.ready();
+            
+            await faceapi.nets.tinyFaceDetector.loadFromUri(URL_MODELOS);
+            await faceapi.nets.ssdMobilenetv1.loadFromUri(URL_MODELOS);
+            await faceapi.nets.faceLandmark68Net.loadFromUri(URL_MODELOS);
+            await faceapi.nets.faceRecognitionNet.loadFromUri(URL_MODELOS);
+            
+            modeloCarregado = true;
+            statusMsg.innerText = `SISTEMA PRONTO (${isMobile ? 'Mobile' : 'Desktop'})`;
+            statusMsg.style.color = "#00ff00"; 
+            
+        } catch (e) {
+            statusMsg.innerText = "Erro ao iniciar a IA. Verifique sua conexão.";
+            statusMsg.style.color = "#ff4c4c"; 
+            console.error(e);
+        }
+    }
+
+    // 4. CONFIGURAÇÕES DO DETECTOR
+    function obterOpcoesDeDeteccao() {
+        if (isMobile) {
+            return new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 });
+        } else {
+            return new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 });
+        }
+    }
+
+    // 5. NAVEGAÇÃO E CÂMERAS
+    async function mudarAba(abaDestino) {
+        document.querySelectorAll('.aba').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.nav-buttons button').forEach(el => el.classList.remove('active'));
+        
+        document.getElementById(`aba-${abaDestino}`).classList.add('active');
+        document.getElementById(`btn-nav-${abaDestino}`).classList.add('active');
+
+        pararCamera();
+        loopAtivo = false;
+
+        if (abaDestino === 'cadastro') {
+            if(isMobile) refazerFotoMobile(false); 
+            await ligarCamera(videoCadastro, modoCameraCadastro);
+        } else if (abaDestino === 'camera') {
+            await ligarCamera(videoReconhecimento, modoCameraReconhecimento);
+            iniciarReconhecimentoAoVivo();
+        } else if (abaDestino === 'relatorio') {
+            renderizarTabela();
+        }
+    }
+
+    function pararCamera() {
+        if (streamAtual) {
+            streamAtual.getTracks().forEach(track => track.stop());
+            streamAtual = null;
+        }
+        videoCadastro.srcObject = null;
+        videoReconhecimento.srcObject = null;
+    }
+
+    async function ligarCamera(elementoVideo, direcaoCamera) {
+        pararCamera(); 
+        
+        await new Promise(res => setTimeout(res, 300));
+        
+        let larguraIdeal = isMobile ? 480 : 1280;
+        let alturaIdeal = isMobile ? 640 : 720;
+
+        let restricoes = {
+            video: direcaoCamera === "environment" 
+                ? { facingMode: { exact: "environment" }, width: { ideal: larguraIdeal }, height: { ideal: alturaIdeal } } 
+                : { facingMode: "user", width: { ideal: larguraIdeal }, height: { ideal: alturaIdeal } }
+        };
+
+        try {
+            streamAtual = await navigator.mediaDevices.getUserMedia(restricoes);
+            elementoVideo.srcObject = streamAtual;
+        } catch (err) {
+            console.warn(`Tentativa exata de câmera falhou. Removendo restrições de resolução...`);
+            try {
+                streamAtual = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: direcaoCamera } 
+                });
+                elementoVideo.srcObject = streamAtual;
+            } catch (errFallback) {
+                console.warn(`Tentando qualquer câmera como último recurso...`);
+                try {
+                    streamAtual = await navigator.mediaDevices.getUserMedia({ video: true });
+                    elementoVideo.srcObject = streamAtual;
+                } catch (errLast) {
+                    alert("Erro ao acessar a câmera. Verifique as permissões do navegador.");
+                }
+            }
+        }
+    }
+
+    async function alternarCamera() {
+        if (document.getElementById('aba-cadastro').classList.contains('active')) {
+            modoCameraCadastro = (modoCameraCadastro === "user") ? "environment" : "user";
+            refazerFotoMobile(false); 
+            await ligarCamera(videoCadastro, modoCameraCadastro);
+        } else if (document.getElementById('aba-camera').classList.contains('active')) {
+            modoCameraReconhecimento = (modoCameraReconhecimento === "user") ? "environment" : "user";
+            loopAtivo = false; 
+            await ligarCamera(videoReconhecimento, modoCameraReconhecimento);
+            iniciarReconhecimentoAoVivo(); 
+        }
+    }
+
+    // 6. LÓGICA DE CADASTRO
+    function tirarFotoMobile() {
+        const ctx = canvasFoto.getContext('2d');
+        canvasFoto.width = videoCadastro.videoWidth;
+        canvasFoto.height = videoCadastro.videoHeight;
+        ctx.drawImage(videoCadastro, 0, 0, canvasFoto.width, canvasFoto.height);
+        
+        document.getElementById('wrapper-video-cadastro').style.display = 'none';
+        canvasFoto.style.display = 'block';
+        
+        document.getElementById('btn-tirar-foto').style.display = 'none';
+        document.getElementById('btn-refazer-foto').style.display = 'block';
+        document.getElementById('btn-salvar-cadastro-mobile').disabled = false;
+        
+        pararCamera(); 
+    }
+
+    function refazerFotoMobile(iniciarCamera = true) {
+        document.getElementById('wrapper-video-cadastro').style.display = 'block';
+        canvasFoto.style.display = 'none';
+        document.getElementById('btn-tirar-foto').style.display = 'block';
+        document.getElementById('btn-refazer-foto').style.display = 'none';
+        document.getElementById('btn-salvar-cadastro-mobile').disabled = true;
+        
+        if(iniciarCamera && document.getElementById('aba-cadastro').classList.contains('active')) {
+             ligarCamera(videoCadastro, modoCameraCadastro);
+        }
+    }
+
+    async function cadastrarMobile() {
+        await processarECadastrar(canvasFoto, () => refazerFotoMobile(true));
+    }
+
+    async function cadastrarDesktop() {
+        await processarECadastrar(videoCadastro, () => {});
+    }
+
+    async function processarECadastrar(fonteDeImagem, callbackFinal) {
+        const nome = document.getElementById('nomeInput').value.trim();
+        const turno = document.getElementById('turnoInput').value;
+        
+        if (!nome) return alert("Por favor, digite o nome do aluno.");
+        if (!modeloCarregado) return alert("A IA ainda está carregando...");
+
+        statusMsg.innerText = "PROCESSANDO ROSTO...";
+        statusMsg.style.color = "#ffeb3b";
+        
+        try {
+            const opcoes = obterOpcoesDeDeteccao();
+            const deteccao = await faceapi.detectSingleFace(fonteDeImagem, opcoes)
+                                          .withFaceLandmarks()
+                                          .withFaceDescriptor();
+
+            if (deteccao) {
+                bancoAlunos.push({ nome, turno, descriptor: deteccao.descriptor });
+                atualizarMatcher();
+                salvarDados();
+                
+                alert(`Aluno(a) ${nome} cadastrado com sucesso!`);
+                document.getElementById('nomeInput').value = "";
+                callbackFinal();
+            } else {
+                alert("Rosto não detectado! O rosto precisa estar bem iluminado e visível. Tente novamente.");
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Erro ao processar a imagem.");
+        }
+
+        statusMsg.innerText = `SISTEMA PRONTO (${isMobile ? 'Mobile' : 'Desktop'})`;
+        statusMsg.style.color = "#00ff00";
+    }
+
+    // 7. RECONHECIMENTO AO VIVO (CÂMERA)
+    async function iniciarReconhecimentoAoVivo() {
+        if (!modeloCarregado) return;
+        loopAtivo = true;
+        
+        if (videoReconhecimento.readyState >= 2) {
+            canvasOverlay.width = videoReconhecimento.videoWidth;
+            canvasOverlay.height = videoReconhecimento.videoHeight;
+        } else {
+            videoReconhecimento.addEventListener('loadedmetadata', () => {
+                canvasOverlay.width = videoReconhecimento.videoWidth;
+                canvasOverlay.height = videoReconhecimento.videoHeight;
+            });
+        }
+
+        const opcoes = obterOpcoesDeDeteccao();
+
+        async function processarFrame() {
+            if (!loopAtivo) return;
+
+            try {
+                if (videoReconhecimento.readyState === 4) {
+                    const displaySize = { width: videoReconhecimento.videoWidth, height: videoReconhecimento.videoHeight };
+                    faceapi.matchDimensions(canvasOverlay, displaySize);
+
+                    const deteccoes = await faceapi.detectAllFaces(videoReconhecimento, opcoes)
+                                                   .withFaceLandmarks()
+                                                   .withFaceDescriptors();
+                    
+                    const redimensionado = faceapi.resizeResults(deteccoes, displaySize);
+                    
+                    const ctx = canvasOverlay.getContext('2d');
+                    ctx.clearRect(0, 0, canvasOverlay.width, canvasOverlay.height);
+
+                    redimensionado.forEach(d => {
+                        let label = "Desconhecido";
+                        let boxColor = '#0d6efd'; // CAIXINHA AZUL para desconhecidos
+
+                        if (matcher) {
+                            const match = matcher.findBestMatch(d.descriptor);
+                            if (match.label !== 'unknown') {
+                                label = match.label;
+                                boxColor = 'green'; // CAIXINHA VERDE se o aluno for reconhecido
+                                registrarPresenca(match.label); 
+                            }
+                        }
+                        
+                        const drawBox = new faceapi.draw.DrawBox(d.detection.box, { label, boxColor });
+                        drawBox.draw(canvasOverlay);
+                    });
+                }
+            } catch (err) {
+                console.error("Erro no processamento:", err);
+            }
+
+            if (isMobile) {
+                requestAnimationFrame(processarFrame);
+            } else {
+                setTimeout(processarFrame, 200);
+            }
+        }
+
+        processarFrame();
+    }
+
+    // 8. REGISTRO E TABELA
+    function registrarPresenca(nome) {
+        const hoje = new Date().toISOString().split('T')[0];
+        if (!registrosEntrada.find(r => r.nome === nome && r.data === hoje)) {
+            registrosEntrada.push({ nome, data: hoje, hora: new Date().toLocaleTimeString('pt-BR') });
+            salvarDados(); 
+            if(document.getElementById('aba-relatorio').classList.contains('active')) {
+                renderizarTabela();
+            }
+        }
+    }
+
+    function renderizarTabela() {
+        const corpo = document.getElementById('tabelaCorpo');
+        const inputData = document.getElementById('filtroData');
+        const dataSel = inputData ? inputData.value : new Date().toISOString().split('T')[0];
+        
+        const agora = new Date();
+        const horaDecimal = agora.getHours() + (agora.getMinutes() / 60);
+
+        corpo.innerHTML = "";
+        
+        if (bancoAlunos.length === 0) {
+            corpo.innerHTML = "<tr><td colspan='4' style='text-align:center;'>Nenhum aluno cadastrado.</td></tr>";
+            return;
+        }
+
+        bancoAlunos.forEach(aluno => {
+            const reg = registrosEntrada.find(r => r.nome === aluno.nome && r.data === dataSel);
+            let status = reg ? "Presente" : (horaDecimal > (aluno.turno === "Manha" ? 12 : 21) ? "Falta" : "Aguardando");
+            
+            corpo.innerHTML += `<tr>
+                <td>${aluno.nome}</td>
+                <td>${aluno.turno}</td>
+                <td>${reg ? reg.hora : '--'}</td>
+                <td class="${status === 'Presente' ? 'status-presente' : (status === 'Falta' ? 'status-falta' : '')}">${status}</td>
+            </tr>`;
+        });
+    }
+
+    window.onload = iniciarIA;
+
+</script>
+</body>
+</html>
