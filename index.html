@@ -10,7 +10,7 @@
 
     <div class="bg-white p-8 rounded-lg shadow-lg w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 gap-8">
         
-        <div class="flex flex-col items-center justify-center">
+        <div class="flex flex-col items-center justify-start">
             <h2 class="text-xl font-bold mb-4 text-gray-700">Captura de Rosto</h2>
             <div class="relative w-full h-64 bg-black rounded-md overflow-hidden">
                 <video id="video" class="w-full h-full object-cover" autoplay></video>
@@ -21,6 +21,12 @@
                 Tirar Foto
             </button>
             <p id="foto-status" class="text-sm text-green-600 mt-2 hidden font-semibold">✔ Foto capturada!</p>
+            
+            <div id="relatorio-container" class="mt-6 w-full hidden">
+                <h3 class="text-lg font-bold mb-2 text-gray-700 text-center border-b pb-2">Relatório de Alunos</h3>
+                <div id="relatorio-lista" class="space-y-3 max-h-[400px] overflow-y-auto w-full p-2">
+                    </div>
+            </div>
         </div>
 
         <div>
@@ -72,11 +78,8 @@
                     </div>
                     <div>
                         <label class="block text-gray-700 text-sm font-bold mb-2">Status</label>
-                        <select id="status" required class="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <select id="status" required class="w-full px-3 py-2 border rounded-md bg-gray-100 focus:outline-none">
                             <option value="Cadastrado" selected>Cadastrado</option>
-                            <option value="Presente">Presente</option>
-                            <option value="Atrasado">Atrasado</option>
-                            <option value="Ausente">Ausente</option>
                         </select>
                     </div>
                 </div>
@@ -110,7 +113,7 @@
 
         navigator.mediaDevices.getUserMedia({ video: true })
             .then(stream => { video.srcObject = stream; })
-            .catch(err => { alert("Acesse a câmera para prosseguir."); });
+            .catch(err => { console.error("Erro ao acessar câmera:", err); });
 
         btnCapturar.addEventListener('click', () => {
             const context = canvas.getContext('2d');
@@ -121,6 +124,47 @@
             fotoStatus.classList.remove('hidden');
         });
 
+        // Função para buscar o relatório
+        async function fetchRelatorio() {
+            try {
+                const response = await fetch('/api/relatorio');
+                const resultado = await response.json();
+                
+                const container = document.getElementById('relatorio-container');
+                const lista = document.getElementById('relatorio-lista');
+                
+                if (resultado.sucesso && resultado.dados && resultado.dados.length > 0) {
+                    container.classList.remove('hidden');
+                    lista.innerHTML = ''; 
+                    
+                    // Campos que NÃO devem aparecer no relatório
+                    const camposOcultos = ['descriptor', 'foto_base64', 'id', 'criado_em'];
+
+                    resultado.dados.forEach(aluno => {
+                        let detalhesHTML = '';
+                        for (const [chave, valor] of Object.entries(aluno)) {
+                            if (!camposOcultos.includes(chave)) {
+                                detalhesHTML += `<p class="text-xs text-gray-700"><strong>${chave.toUpperCase()}:</strong> ${valor}</p>`;
+                            }
+                        }
+                        
+                        lista.innerHTML += `
+                            <div class="bg-gray-50 border-l-4 border-blue-500 p-3 rounded shadow-sm">
+                                ${detalhesHTML}
+                            </div>
+                        `;
+                    });
+                } else {
+                    container.classList.add('hidden');
+                }
+            } catch (error) {
+                console.error("Erro ao carregar relatório:", error);
+            }
+        }
+
+        // Carregar relatório ao iniciar a página
+        document.addEventListener('DOMContentLoaded', fetchRelatorio);
+
         formCadastro.addEventListener('submit', async (e) => {
             e.preventDefault();
             
@@ -128,8 +172,6 @@
                 alert("Capture a foto primeiro!");
                 return;
             }
-
-            atualizarHorario();
 
             const payload = {
                 nome: document.getElementById('nome').value,
@@ -155,6 +197,8 @@
                     fotoBase64 = '';
                     fotoStatus.classList.add('hidden');
                     atualizarHorario();
+                    // Atualiza o relatório caso o status mude
+                    fetchRelatorio();
                 } else {
                     alert("Erro: " + resultado.erro);
                 }

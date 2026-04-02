@@ -35,5 +35,21 @@ def cadastro():
     except Exception as e:
         return jsonify({'sucesso': False, 'erro': str(e)}), 400
 
+@app.route('/api/relatorio', methods=['GET'])
+def relatorio():
+    try:
+        # Busca registros onde o status é diferente de 'Cadastrado'
+        resposta = supabase.table('cadastros').select('*').neq('status', 'Cadastrado').execute()
+        dados = resposta.data
+        
+        # Remove o 'descriptor' do dicionário no backend para garantir a regra e economizar tráfego de rede
+        for aluno in dados:
+            aluno.pop('descriptor', None)
+            
+        return jsonify({'sucesso': True, 'dados': dados}), 200
+        
+    except Exception as e:
+        return jsonify({'sucesso': False, 'erro': str(e)}), 400
+
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
