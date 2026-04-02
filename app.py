@@ -27,7 +27,8 @@ def cadastro():
             'turma': dados.get('turma'),
             'entrada': dados.get('entrada'),
             'status': dados.get('status'),
-            'foto_base64': dados.get('foto')
+            'foto_base64': dados.get('foto'),
+            'turno': dados.get('turno'),
         }).execute()
         
         return jsonify({'sucesso': True, 'dados': resposta.data}), 200
