@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cadastro de Aluno</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body class="bg-gray-100 min-h-screen flex items-center justify-center py-10">
 
@@ -24,8 +25,7 @@
             
             <div id="relatorio-container" class="mt-6 w-full hidden">
                 <h3 class="text-lg font-bold mb-2 text-gray-700 text-center border-b pb-2">Relatório de Alunos</h3>
-                <div id="relatorio-lista" class="space-y-3 max-h-[400px] overflow-y-auto w-full p-2">
-                    </div>
+                <div id="relatorio-lista" class="space-y-3 max-h-[400px] overflow-y-auto w-full p-2"></div>
             </div>
         </div>
 
@@ -92,6 +92,10 @@
     </div>
 
     <script>
+        const SUPABASE_URL = 'https://bpdcdqaangtkoiqppdwf.supabase.co'
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJwZGNkcWFhbmd0a29pcXBwZHdmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNjc0NjksImV4cCI6MjA5MDY0MzQ2OX0.x8X7o2Zpc_7ZfInSVtMuJRzePyV5Ljkkmn2XaMNNEII'
+        const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
+
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
         const btnCapturar = document.getElementById('btn-capturar');
@@ -124,46 +128,52 @@
             fotoStatus.classList.remove('hidden');
         });
 
-        // Função para buscar o relatório
-        async function fetchRelatorio() {
-            try {
-                const response = await fetch('/api/relatorio');
-                const resultado = await response.json();
-                
-                const container = document.getElementById('relatorio-container');
-                const lista = document.getElementById('relatorio-lista');
-                
-                if (resultado.sucesso && resultado.dados && resultado.dados.length > 0) {
-                    container.classList.remove('hidden');
-                    lista.innerHTML = ''; 
-                    
-                    // Campos que NÃO devem aparecer no relatório
-                    const camposOcultos = ['descriptor', 'foto_base64', 'id', 'criado_em'];
-
-                    resultado.dados.forEach(aluno => {
-                        let detalhesHTML = '';
-                        for (const [chave, valor] of Object.entries(aluno)) {
-                            if (!camposOcultos.includes(chave)) {
-                                detalhesHTML += `<p class="text-xs text-gray-700"><strong>${chave.toUpperCase()}:</strong> ${valor}</p>`;
-                            }
-                        }
-                        
-                        lista.innerHTML += `
-                            <div class="bg-gray-50 border-l-4 border-blue-500 p-3 rounded shadow-sm">
-                                ${detalhesHTML}
-                            </div>
-                        `;
-                    });
-                } else {
-                    container.classList.add('hidden');
-                }
-            } catch (error) {
-                console.error("Erro ao carregar relatório:", error);
+        function corStatus(status) {
+            switch(status) {
+                case 'Presente':  return 'border-green-500'
+                case 'Atrasado':  return 'border-yellow-500'
+                case 'Ausente':   return 'border-red-500'
+                default:          return 'border-blue-500'
             }
         }
 
-        // Carregar relatório ao iniciar a página
-        document.addEventListener('DOMContentLoaded', fetchRelatorio);
+        async function fetchRelatorio() {
+            const { data, error } = await supabaseClient
+                .from('cadastros')
+                .select('nome, turma, turno, entrada, status, criado_em')
+                .neq('status', 'Cadastrado')
+                .order('criado_em', { ascending: false })
+
+            const container = document.getElementById('relatorio-container')
+            const lista = document.getElementById('relatorio-lista')
+
+            if (error || !data || data.length === 0) {
+                container.classList.add('hidden')
+                return
+            }
+
+            container.classList.remove('hidden')
+            lista.innerHTML = ''
+
+            data.forEach(aluno => {
+                const dataFormatada = aluno.criado_em
+                    ? new Date(aluno.criado_em).toLocaleString('pt-BR')
+                    : '-'
+
+                lista.innerHTML += `
+                    <div class="bg-gray-50 border-l-4 ${corStatus(aluno.status)} p-3 rounded shadow-sm">
+                        <p class="text-xs text-gray-700"><strong>NOME:</strong> ${aluno.nome}</p>
+                        <p class="text-xs text-gray-700"><strong>TURMA:</strong> ${aluno.turma}</p>
+                        <p class="text-xs text-gray-700"><strong>TURNO:</strong> ${aluno.turno}</p>
+                        <p class="text-xs text-gray-700"><strong>ENTRADA:</strong> ${aluno.entrada || '-'}</p>
+                        <p class="text-xs text-gray-700"><strong>STATUS:</strong> ${aluno.status}</p>
+                        <p class="text-xs text-gray-500"><strong>CADASTRADO EM:</strong> ${dataFormatada}</p>
+                    </div>
+                `
+            })
+        }
+
+        document.addEventListener('DOMContentLoaded', fetchRelatorio)
 
         formCadastro.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -172,6 +182,8 @@
                 alert("Capture a foto primeiro!");
                 return;
             }
+
+            atualizarHorario();
 
             const payload = {
                 nome: document.getElementById('nome').value,
@@ -197,7 +209,6 @@
                     fotoBase64 = '';
                     fotoStatus.classList.add('hidden');
                     atualizarHorario();
-                    // Atualiza o relatório caso o status mude
                     fetchRelatorio();
                 } else {
                     alert("Erro: " + resultado.erro);
