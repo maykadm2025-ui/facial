@@ -55,6 +55,16 @@
                     </select>
                 </div>
 
+                <div>
+                    <label class="block text-gray-700 text-sm font-bold mb-2">Turno</label>
+                    <select id="turno" required class="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="" disabled selected>Selecione o Turno...</option>
+                        <option value="Manhã">Manhã</option>
+                        <option value="Tarde">Tarde</option>
+                        <option value="Noite">Noite</option>
+                    </select>
+                </div>
+
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="block text-gray-700 text-sm font-bold mb-2">Horário de Entrada</label>
@@ -88,7 +98,6 @@
         
         let fotoBase64 = '';
 
-        // Função para pegar a hora atual formatada HH:MM
         function atualizarHorario() {
             const agora = new Date();
             const horas = String(agora.getHours()).padStart(2, '0');
@@ -96,9 +105,8 @@
             inputEntrada.value = `${horas}:${minutos}`;
         }
 
-        // Inicia o horário e a câmera
         atualizarHorario();
-        setInterval(atualizarHorario, 60000); // Atualiza o relógio a cada minuto
+        setInterval(atualizarHorario, 60000);
 
         navigator.mediaDevices.getUserMedia({ video: true })
             .then(stream => { video.srcObject = stream; })
@@ -121,12 +129,12 @@
                 return;
             }
 
-            // Atualiza o horário uma última vez no momento do clique
             atualizarHorario();
 
             const payload = {
                 nome: document.getElementById('nome').value,
                 turma: document.getElementById('turma').value,
+                turno: document.getElementById('turno').value,
                 entrada: inputEntrada.value,
                 status: document.getElementById('status').value,
                 foto: fotoBase64
@@ -146,7 +154,7 @@
                     formCadastro.reset();
                     fotoBase64 = '';
                     fotoStatus.classList.add('hidden');
-                    atualizarHorario(); // Reseta o horário após limpar o formulário
+                    atualizarHorario();
                 } else {
                     alert("Erro: " + resultado.erro);
                 }
